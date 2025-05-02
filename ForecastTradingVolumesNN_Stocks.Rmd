@@ -1,0 +1,889 @@
+---
+title: "Forecast Trading Volumes - Stocks"
+author: "Sulalitha Bowala"
+date: "2023-08-02"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list=ls(all=TRUE)) # Remove objects from environment
+```
+
+
+```{r}
+library(quantmod)
+library(PerformanceAnalytics)
+library(tidyverse)
+```
+
+
+## Download data
+
+```{r}
+getSymbols("AAPL", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+
+getSymbols("MSFT", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+getSymbols("NVDA", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+getSymbols("INTC", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+head(AAPL)
+```
+
+
+```{r}
+AAPL = as.matrix.data.frame(AAPL)
+head(AAPL)
+MSFT = as.matrix.data.frame(MSFT)
+NVDA = as.matrix.data.frame(NVDA)
+INTC = as.matrix.data.frame(INTC)
+```
+
+
+
+## Calculate log return and log volume
+
+```{r}
+logReturn.AAPL <- as.matrix(AAPL[,6] %>% log %>% diff)
+logReturn.MSFT <- as.matrix(MSFT[,6] %>% log %>% diff)
+logReturn.NVDA <- as.matrix(NVDA[,6] %>% log %>% diff)
+logReturn.INTC <- as.matrix(INTC[,6] %>% log %>% diff)
+
+logVolume.AAPL <- log(AAPL[,5])
+logVolume.MSFT <- log(MSFT[,5])
+logVolume.NVDA <- log(NVDA[,5])
+logVolume.INTC <- log(INTC[,5])
+
+```
+
+
+## data-driven volatility forecast
+
+```{r}
+# calculate sign correlation rho
+rho.cal<-function(X){
+  rho.hat<-cor(sign(X-mean(X)), X-mean(X))
+  return(rho.hat)
+}
+
+ddvol <- function(data){ 
+  ptm<-proc.time()
+  alpha<-seq(0.01, 0.3, 0.01)
+  t <- length(data)
+  cut.t <- 50 ### how many l values
+  X.cdf <- ecdf(data)
+  rho<- rho.cal(data)
+  mu <- mean(data)
+  vol<- abs(data - mu)/(2*rho*sqrt(X.cdf(mu)*(1-X.cdf(mu))))
+  MSE_alpha <- rep(0, length(alpha))
+  sn <- rep(0, length(alpha))
+  for(a in 1:length(alpha)){
+    s <- mean(vol[1:cut.t])
+    error<-rep(0, t)
+    for(i in 1:t){
+      error[i]<-vol[i]-s
+      s<-alpha[a]*vol[i]+(1-alpha[a])*s
+    }
+    MSE_alpha[a]<-mean(error[-(1:cut.t)]^2)
+    sn[a] <- s
+  }
+  dd.vol.fore <- sn[which.min(MSE_alpha)]
+  rmse <- sqrt(min(MSE_alpha))
+  return(c(dd.vol.fore, rmse, proc.time()-ptm))
+}
+```
+
+
+```{r}
+N <- nrow(logReturn.AAPL)
+step <- 63
+
+ddvol.AAPL<-c()
+ddvol.MSFT<-c()
+ddvol.NVDA<-c()
+ddvol.INTC<-c()
+
+for(i in 1:(N-63)){
+  ddvol.AAPL[[i]]<-ddvol(as.numeric(logReturn.AAPL[i:(i+63)]))
+}
+ddvol.AAPL.m <- as.data.frame(matrix(unlist(ddvol.AAPL), nrow=length(ddvol.AAPL), byrow=TRUE))[, 1:3]
+colnames (ddvol.AAPL.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-63)){
+  ddvol.MSFT[[i]]<-ddvol(as.numeric(logReturn.MSFT[i:(i+63)]))
+}
+ddvol.MSFT.m <- as.data.frame(matrix(unlist(ddvol.MSFT), nrow=length(ddvol.MSFT), byrow=TRUE))[, 1:3]
+colnames (ddvol.MSFT.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-63)){
+  ddvol.NVDA[[i]]<-ddvol(as.numeric(logReturn.NVDA[i:(i+63)]))
+}
+ddvol.NVDA.m <- as.data.frame(matrix(unlist(ddvol.NVDA), nrow=length(ddvol.NVDA), byrow=TRUE))[, 1:3]
+colnames (ddvol.NVDA.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-63)){
+  ddvol.INTC[[i]]<-ddvol(as.numeric(logReturn.INTC[i:(i+63)]))
+}
+ddvol.INTC.m <- as.data.frame(matrix(unlist(ddvol.INTC), nrow=length(ddvol.INTC), byrow=TRUE))[, 1:3]
+colnames (ddvol.INTC.m) <- c("DDVF", "ERROR", "TIME")
+
+
+
+logVolatility.AAPL <- log(ddvol.AAPL.m$DDVF[-1])
+logVolatility.MSFT <- log(ddvol.MSFT.m$DDVF[-1])
+logVolatility.NVDA <- log(ddvol.NVDA.m$DDVF[-1])
+logVolatility.INTC <- log(ddvol.INTC.m$DDVF[-1])
+```
+
+
+## Constructing data frames with log volume, log return, and log volatiltity
+
+## For AAPL
+
+```{r}
+AAPL.data <- cbind(logReturn.AAPL[-c(1:64)], logVolume.AAPL[-c(1:64)], logVolatility.AAPL)
+colnames(AAPL.data) <- c("logReturn.AAPL", "logVolume.AAPL","logVolatility.AAPL")
+head(AAPL.data)
+tail(AAPL.data)
+
+acf(AAPL.data[, 2])
+
+pacf(AAPL.data[, 2])
+
+```
+
+
+## For MSFT
+
+```{r}
+MSFT.data <- cbind(logReturn.MSFT[-c(1:64)], logVolume.MSFT[-c(1:64)], logVolatility.MSFT)
+colnames(MSFT.data) <- c("logReturn.MSFT", "logVolume.MSFT","logVolatility.MSFT")
+head(MSFT.data)
+tail(MSFT.data)
+
+acf(MSFT.data[, 2])
+
+pacf(MSFT.data[, 2])
+
+```
+
+
+## For NVDA
+
+```{r}
+NVDA.data <- cbind(logReturn.NVDA[-c(1:64)], logVolume.NVDA[-c(1:64)], logVolatility.NVDA)
+colnames(NVDA.data) <- c("logReturn.NVDA", "logVolume.NVDA","logVolatility.NVDA")
+head(NVDA.data)
+tail(NVDA.data)
+
+acf(NVDA.data[, 2])
+
+pacf(NVDA.data[, 2])
+
+```
+
+
+
+
+## For INTC
+
+```{r}
+INTC.data <- cbind(logReturn.INTC[-c(1:64)], logVolume.INTC[-c(1:64)], logVolatility.INTC)
+colnames(INTC.data) <- c("logReturn.INTC", "logVolume.INTC","logVolatility.INTC")
+head(INTC.data)
+tail(INTC.data)
+
+acf(INTC.data[, 2])
+
+pacf(INTC.data[, 2])
+
+```
+
+
+
+## Indetifying train and test data
+
+```{r}
+ntest = round(nrow(AAPL.data)*0.75)
+ntest
+
+train <- rep(NA, times = nrow(AAPL.data))
+AAPL.data.Complete <- cbind(AAPL.data, train)
+
+for(i in 1:ntest){
+  AAPL.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(AAPL.data))){
+  AAPL.data.Complete[i,4]= "FALSE"
+}
+#head(AAPL.data.Complete)
+#tail(AAPL.data.Complete)
+
+
+train <- rep(NA, times = nrow(MSFT.data))
+MSFT.data.Complete <- cbind(MSFT.data, train)
+
+for(i in 1:ntest){
+  MSFT.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(AAPL.data))){
+  MSFT.data.Complete[i,4]= "FALSE"
+}
+
+
+train <- rep(NA, times = nrow(NVDA.data))
+NVDA.data.Complete <- cbind(NVDA.data, train)
+
+for(i in 1:ntest){
+  NVDA.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(AAPL.data))){
+  NVDA.data.Complete[i,4]= "FALSE"
+}
+
+
+train <- rep(NA, times = nrow(INTC.data))
+INTC.data.Complete <- cbind(INTC.data, train)
+
+for(i in 1:ntest){
+  INTC.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(AAPL.data))){
+  INTC.data.Complete[i,4]= "FALSE"
+}
+
+```
+
+
+## Setup NN from the book
+
+```{r}
+istrain.AAPL <- AAPL.data.Complete[, "train"]
+istrain.MSFT <- MSFT.data.Complete[, "train"]
+istrain.NVDA <- NVDA.data.Complete[, "train"]
+istrain.INTC <- INTC.data.Complete[, "train"]
+
+xdata.AAPL <- scale(AAPL.data)
+xdata.MSFT <- scale(MSFT.data)
+xdata.NVDA <- scale(NVDA.data)
+xdata.INTC <- scale(INTC.data)
+
+```
+
+
+
+```{r}
+# Function to create lag values
+lagm <- function(x, k = 1) {
+n <- nrow(x)
+pad <- matrix(NA , k, ncol(x))
+rbind(pad , x[1:(n - k), ])
+}
+```
+
+
+
+```{r}
+## 11 peaks in ACF plot for AAPL. Thus, we consider lag 11 for AAPL.
+arframe.AAPL <- data.frame(log_volume.AAPL = xdata.AAPL[, "logVolume.AAPL"],
+L1.AAPL = lagm(xdata.AAPL , 1), L2.AAPL = lagm(xdata.AAPL , 2),
+L3.AAPL = lagm(xdata.AAPL , 3), L4.AAPL = lagm(xdata.AAPL , 4),
+L5.AAPL = lagm(xdata.AAPL , 5), L6.AAPL = lagm(xdata.AAPL , 6),
+L7.AAPL = lagm(xdata.AAPL , 7), L8.AAPL = lagm(xdata.AAPL , 8),
+L9.AAPL = lagm(xdata.AAPL , 9), L10.AAPL = lagm(xdata.AAPL , 10),
+L11.AAPL = lagm(xdata.AAPL , 11))
+
+
+## 14 peaks in ACF plot for MSFT. Thus, we consider lag 14 for MSFT.
+arframe.MSFT <- data.frame(log_volume.MSFT = xdata.MSFT[, "logVolume.MSFT"],
+L1.MSFT = lagm(xdata.MSFT , 1), L2.MSFT = lagm(xdata.MSFT , 2),
+L3.MSFT = lagm(xdata.MSFT , 3), L4.MSFT = lagm(xdata.MSFT , 4),
+L5.MSFT = lagm(xdata.MSFT , 5), L6.MSFT = lagm(xdata.MSFT , 6),
+L7.MSFT = lagm(xdata.MSFT , 7), L8.MSFT = lagm(xdata.MSFT , 8),
+L9.MSFT = lagm(xdata.MSFT , 9), L10.MSFT = lagm(xdata.MSFT , 10),
+L11.MSFT = lagm(xdata.MSFT , 11), L12.MSFT = lagm(xdata.MSFT , 12),
+L13.MSFT = lagm(xdata.MSFT , 13), L14.MSFT = lagm(xdata.MSFT , 14))
+
+
+## 4 peaks in ACF plot for NVDA. Thus, we consider lag 4 for NVDA.
+arframe.NVDA<- data.frame(log_volume.NVDA = xdata.NVDA[, "logVolume.NVDA"],
+L1.NVDA = lagm(xdata.NVDA , 1), L2.NVDA = lagm(xdata.NVDA , 2),
+L3.NVDA = lagm(xdata.NVDA , 3), L4.NVDA = lagm(xdata.NVDA , 4))
+
+
+## 4 peaks in ACF plot for INTC. Thus, we consider lag 4 for INTC.
+arframe.INTC<- data.frame(log_volume.INTC = xdata.INTC[, "logVolume.INTC"],
+L1.INTC = lagm(xdata.INTC , 1), L2.INTC = lagm(xdata.INTC , 2),
+L3.INTC = lagm(xdata.INTC , 3), L4.INTC = lagm(xdata.INTC , 4))
+```
+
+
+```{r}
+## remove empty rows and adjust istrain(s) accordingly.
+
+arframe.AAPL <- arframe.AAPL[-(1:11), ]
+istrain.AAPL <- istrain.AAPL[-(1:11)]
+
+arframe.MSFT <- arframe.MSFT[-(1:14), ]
+istrain.MSFT <- istrain.MSFT[-(1:14)]
+
+arframe.NVDA <- arframe.NVDA[-(1:4), ]
+istrain.NVDA <- istrain.NVDA[-(1:4)]
+
+arframe.INTC <- arframe.INTC[-(1:4), ]
+istrain.INTC <- istrain.INTC[-(1:4)]
+
+```
+
+
+
+```{r}
+## To fit the RNN, we need to reshape these data
+
+nAAPL <- nrow(arframe.AAPL)
+xrnn.AAPL <- data.matrix(arframe.AAPL[, -1])
+xrnn.AAPL <- array(xrnn.AAPL, c(nAAPL, 3, 11))
+xrnn.AAPL <- xrnn.AAPL[,, 11:1]
+xrnn.AAPL <- aperm(xrnn.AAPL , c(1, 3, 2))
+dim(xrnn.AAPL)
+
+
+nMSFT <- nrow(arframe.MSFT)
+xrnn.MSFT <- data.matrix(arframe.MSFT[, -1])
+xrnn.MSFT <- array(xrnn.MSFT, c(nMSFT, 3, 14))
+xrnn.MSFT <- xrnn.MSFT[,, 14:1]
+xrnn.MSFT <- aperm(xrnn.MSFT , c(1, 3, 2))
+dim(xrnn.MSFT)
+
+
+nNVDA <- nrow(arframe.NVDA)
+xrnn.NVDA <- data.matrix(arframe.NVDA[, -1])
+xrnn.NVDA <- array(xrnn.NVDA, c(nNVDA, 3, 4))
+xrnn.NVDA <- xrnn.NVDA[,, 4:1]
+xrnn.NVDA <- aperm(xrnn.NVDA , c(1, 3, 2))
+dim(xrnn.NVDA)
+
+
+nNVDA <- nrow(arframe.INTC)
+xrnn.INTC <- data.matrix(arframe.INTC[, -1])
+xrnn.INTC <- array(xrnn.INTC, c(nNVDA, 3, 4))
+xrnn.INTC <- xrnn.INTC[,, 4:1]
+xrnn.INTC <- aperm(xrnn.INTC , c(1, 3, 2))
+dim(xrnn.INTC)
+```
+
+
+```{r, eval = FALSE}
+myarray <- array( 1:24, dim=c(2,3,4),
+ dimnames=list(One=c('a','b'), Two=c('A','B','C'), Three=1:4) )
+myarray
+aperm(myarray, c(3,1,2))
+```
+
+
+```{r}
+library(reticulate)
+#use_python('C:/Users/sulal/AppData/Local/Programs/Python/Python38')
+use_python('C:/Users/sulal/AppData/Local/Programs/Python/Python38/Python.exe')
+
+library(keras)
+```
+
+
+
+```{r}
+#Now we are ready to proceed with the RNN, which uses 12 hidden units.
+
+model.AAPL <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(11, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.AAPL %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.MSFT <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(14, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.MSFT %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.NVDA <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(4, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.NVDA %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.INTC <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(4, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.INTC %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+```
+
+
+## Fit the model and forecast
+
+
+## For AAPL
+
+```{r}
+
+history.AAPL <- model.AAPL %>% fit(xrnn.AAPL[(1:ntest) ,, ], arframe.AAPL[(1:ntest) , "log_volume.AAPL"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) ,, ], arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"]))
+
+kpred.AAPL <- predict(model.AAPL, xrnn.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) ,, ])
+
+## mean square error
+MSE.AAPL <- mean((kpred.AAPL - arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"])^2)
+MSE.AAPL
+
+## mean absolute deviation
+MAD.AAPL <- mean(abs(kpred.AAPL - arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"]))
+MAD.AAPL
+```
+
+
+```{r}
+plot(arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.AAPL, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## For MSFT
+
+```{r}
+
+history.MSFT <- model.MSFT %>% fit(xrnn.MSFT[(1:ntest) ,, ], arframe.MSFT[(1:ntest) , "log_volume.MSFT"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) ,, ], arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"]))
+
+kpred.MSFT <- predict(model.MSFT, xrnn.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) ,, ])
+
+## mean square error
+MSE.MSFT <- mean((kpred.MSFT - arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"])^2)
+MSE.MSFT
+
+## mean absolute deviation
+MAD.MSFT <- mean(abs(kpred.MSFT - arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"]))
+MAD.MSFT
+```
+
+
+```{r}
+plot(arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.MSFT, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## For NVDA
+
+```{r}
+
+history.NVDA <- model.NVDA %>% fit(xrnn.NVDA[(1:ntest) ,, ], arframe.NVDA[(1:ntest) , "log_volume.NVDA"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) ,, ], arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"]))
+
+kpred.NVDA <- predict(model.NVDA, xrnn.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) ,, ])
+
+## mean square error
+MSE.NVDA <- mean((kpred.NVDA - arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"])^2)
+MSE.NVDA
+
+## mean absolute deviation
+MAD.NVDA <- mean(abs(kpred.NVDA - arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"]))
+MAD.NVDA
+```
+
+
+
+```{r}
+plot(arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.NVDA, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## For INTC
+
+```{r}
+
+history.INTC <- model.INTC %>% fit(xrnn.INTC[(1:ntest) ,, ], arframe.INTC[(1:ntest) , "log_volume.INTC"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.INTC[((ntest+1):(dim(xrnn.INTC)[1])) ,, ], arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"]))
+
+kpred.INTC <- predict(model.INTC, xrnn.INTC[((ntest+1):(dim(xrnn.INTC)[1])) ,, ])
+
+## mean square error
+MSE.INTC <- mean((kpred.INTC - arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"])^2)
+MSE.INTC
+
+## mean absolute deviation
+MAD.INTC <- mean(abs(kpred.INTC - arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"]))
+MAD.INTC
+```
+
+
+
+```{r}
+plot(arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.INTC, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## nnetar function from the forecast package
+
+```{r}
+library(forecast)
+```
+
+
+
+## for AAPL
+
+```{r}
+
+trainID.AAPL = which(AAPL.data.Complete[,4]=="TRUE")
+testID.AAPL = which(AAPL.data.Complete[,4]=="FALSE")
+
+train.new.AAPL = AAPL.data.Complete[trainID.AAPL,]
+test.new.AAPL = AAPL.data.Complete[testID.AAPL,]
+
+
+fit.nn.AAPL <- nnetar(as.numeric(train.new.AAPL[,2]), xreg =  cbind(as.numeric(train.new.AAPL[,1]), as.numeric(train.new.AAPL[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.AAPL <- CVar(as.numeric(train.new.AAPL[,2]), xreg =  cbind(as.numeric(train.new.AAPL[,1]), as.numeric(train.new.AAPL[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.AAPL
+
+fore.nn.AAPL <- forecast::forecast(fit.nn.AAPL, xreg =  cbind(as.numeric(test.new.AAPL[,1]), as.numeric(test.new.AAPL[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.AAPL <- mean((fore.nn.AAPL$mean - as.numeric(test.new.AAPL[,2]))^2)
+MSE.nnetar.AAPL
+
+## mean absolute deviation
+MAD.nnetar.AAPL <- mean(abs(fore.nn.AAPL$mean - as.numeric(test.new.AAPL[,2])))
+MAD.nnetar.AAPL
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.AAPL[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.AAPL$mean), col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## for MSFT
+
+```{r}
+
+trainID.MSFT = which(MSFT.data.Complete[,4]=="TRUE")
+testID.MSFT = which(MSFT.data.Complete[,4]=="FALSE")
+
+train.new.MSFT = MSFT.data.Complete[trainID.MSFT,]
+test.new.MSFT = MSFT.data.Complete[testID.MSFT,]
+
+
+fit.nn.MSFT <- nnetar(as.numeric(train.new.MSFT[,2]), xreg =  cbind(as.numeric(train.new.MSFT[,1]), as.numeric(train.new.MSFT[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.MSFT <- CVar(as.numeric(train.new.MSFT[,2]), xreg =  cbind(as.numeric(train.new.MSFT[,1]), as.numeric(train.new.MSFT[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.MSFT
+
+fore.nn.MSFT <- forecast::forecast(fit.nn.MSFT, xreg =  cbind(as.numeric(test.new.MSFT[,1]), as.numeric(test.new.MSFT[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.MSFT <- mean((fore.nn.MSFT$mean - as.numeric(test.new.MSFT[,2]))^2)
+MSE.nnetar.MSFT
+
+## mean absolute deviation
+MAD.nnetar.MSFT <- mean(abs(fore.nn.MSFT$mean - as.numeric(test.new.MSFT[,2])))
+MAD.nnetar.MSFT
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.MSFT[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.MSFT$mean), col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+## for NVDA
+
+```{r}
+
+trainID.NVDA = which(NVDA.data.Complete[,4]=="TRUE")
+testID.NVDA = which(NVDA.data.Complete[,4]=="FALSE")
+
+train.new.NVDA = NVDA.data.Complete[trainID.NVDA,]
+test.new.NVDA = NVDA.data.Complete[testID.NVDA,]
+
+
+fit.nn.NVDA <- nnetar(as.numeric(train.new.NVDA[,2]), xreg =  cbind(as.numeric(train.new.NVDA[,1]), as.numeric(train.new.NVDA[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.NVDA <- CVar(as.numeric(train.new.NVDA[,2]), xreg =  cbind(as.numeric(train.new.NVDA[,1]), as.numeric(train.new.NVDA[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.NVDA
+
+fore.nn.NVDA <- forecast::forecast(fit.nn.NVDA, xreg =  cbind(as.numeric(test.new.NVDA[,1]), as.numeric(test.new.NVDA[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.NVDA <- mean((fore.nn.NVDA$mean - as.numeric(test.new.NVDA[,2]))^2)
+MSE.nnetar.NVDA
+
+## mean absolute deviation
+MAD.nnetar.NVDA <- mean(abs(fore.nn.NVDA$mean - as.numeric(test.new.NVDA[,2])))
+MAD.nnetar.NVDA
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.NVDA[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.NVDA$mean), col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+## for INTC
+
+```{r}
+
+trainID.INTC = which(INTC.data.Complete[,4]=="TRUE")
+testID.INTC = which(INTC.data.Complete[,4]=="FALSE")
+
+train.new.INTC = INTC.data.Complete[trainID.INTC,]
+test.new.INTC = INTC.data.Complete[testID.INTC,]
+
+
+fit.nn.INTC <- nnetar(as.numeric(train.new.INTC[,2]), xreg =  cbind(as.numeric(train.new.INTC[,1]), as.numeric(train.new.INTC[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.INTC <- CVar(as.numeric(train.new.INTC[,2]), xreg =  cbind(as.numeric(train.new.INTC[,1]), as.numeric(train.new.INTC[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.INTC
+
+fore.nn.INTC <- forecast::forecast(fit.nn.INTC, xreg =  cbind(as.numeric(test.new.INTC[,1]), as.numeric(test.new.INTC[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.INTC <- mean((fore.nn.INTC$mean - as.numeric(test.new.INTC[,2]))^2)
+MSE.nnetar.INTC
+
+## mean absolute deviation
+MAD.nnetar.INTC <- mean(abs(fore.nn.INTC$mean - as.numeric(test.new.INTC[,2])))
+MAD.nnetar.INTC
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.INTC[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.INTC$mean), col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## NN with two layers. each layer has 24 neurons
+
+
+## AAPL
+
+```{r}
+model.AAPL.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(11, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.AAPL.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.AAPL.new <- model.AAPL.new %>% fit(xrnn.AAPL[(1:ntest) ,, ], arframe.AAPL[(1:ntest) , "log_volume.AAPL"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) ,, ], arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"]))
+
+kpred.AAPL.new <- predict(model.AAPL.new, xrnn.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) ,, ])
+
+## mean square error
+MSE.AAPL.new <- mean((kpred.AAPL.new - arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"])^2)
+MSE.AAPL.new
+
+## mean absolute deviation
+MAD.AAPL.new <- mean(abs(kpred.AAPL.new - arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"]))
+MAD.AAPL.new
+
+```
+
+
+
+```{r}
+plot(arframe.AAPL[((ntest+1):(dim(xrnn.AAPL)[1])) , "log_volume.AAPL"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.AAPL.new, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+## MSFT
+
+```{r}
+model.MSFT.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(14, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.MSFT.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.MSFT.new <- model.MSFT.new %>% fit(xrnn.MSFT[(1:ntest) ,, ], arframe.MSFT[(1:ntest) , "log_volume.MSFT"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) ,, ], arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"]))
+
+kpred.MSFT.new <- predict(model.MSFT.new, xrnn.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) ,, ])
+
+## mean square error
+MSE.MSFT.new <- mean((kpred.MSFT.new - arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"])^2)
+MSE.MSFT.new
+
+## mean absolute deviation
+MAD.MSFT.new <- mean(abs(kpred.MSFT.new - arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"]))
+MAD.MSFT.new
+
+```
+
+
+
+```{r}
+plot(arframe.MSFT[((ntest+1):(dim(xrnn.MSFT)[1])) , "log_volume.MSFT"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.MSFT.new, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+
+## NVDA
+
+```{r}
+model.NVDA.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(4, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.NVDA.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.NVDA.new <- model.NVDA.new %>% fit(xrnn.NVDA[(1:ntest) ,, ], arframe.NVDA[(1:ntest) , "log_volume.NVDA"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) ,, ], arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"]))
+
+kpred.NVDA.new <- predict(model.NVDA.new, xrnn.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) ,, ])
+
+## mean square error
+MSE.NVDA.new <- mean((kpred.NVDA.new - arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"])^2)
+MSE.NVDA.new
+
+## mean absolute deviation
+MAD.NVDA.new <- mean(abs(kpred.NVDA.new - arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"]))
+MAD.NVDA.new
+
+```
+
+
+
+```{r}
+plot(arframe.NVDA[((ntest+1):(dim(xrnn.NVDA)[1])) , "log_volume.NVDA"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.NVDA.new, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+
+
+## INTC
+
+```{r}
+model.INTC.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(4, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.INTC.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.INTC.new <- model.INTC.new %>% fit(xrnn.INTC[(1:ntest) ,, ], arframe.INTC[(1:ntest) , "log_volume.INTC"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.INTC[((ntest+1):(dim(xrnn.INTC)[1])) ,, ], arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"]))
+
+kpred.INTC.new <- predict(model.INTC.new, xrnn.INTC[((ntest+1):(dim(xrnn.INTC)[1])) ,, ])
+
+## mean square error
+MSE.INTC.new <- mean((kpred.INTC.new - arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"])^2)
+MSE.INTC.new
+
+## mean absolute deviation
+MAD.INTC.new <- mean(abs(kpred.INTC.new - arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"]))
+MAD.INTC.new
+
+```
+
+
+
+```{r}
+plot(arframe.INTC[((ntest+1):(dim(xrnn.INTC)[1])) , "log_volume.INTC"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.INTC.new, col="blue")
+legend("bottomright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+

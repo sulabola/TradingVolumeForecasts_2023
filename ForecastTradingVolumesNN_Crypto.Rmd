@@ -1,0 +1,924 @@
+---
+title: "Forecast Trading Volumes - Crypto"
+author: "Sulalitha Bowala"
+date: "2023-08-02"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list=ls(all=TRUE)) # Remove objects from environment
+```
+
+
+```{r}
+library(quantmod)
+library(PerformanceAnalytics)
+library(tidyverse)
+```
+
+
+## Download data
+
+```{r}
+getSymbols("BTC-USD", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+getSymbols("ETH-USD", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+getSymbols("USDT-USD", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+getSymbols("BNB-USD", from = '2021-10-01',
+           to = "2022-12-31",warnings = FALSE,
+           auto.assign = TRUE)
+
+head(`BTC-USD`)
+```
+
+
+```{r}
+BTC = as.matrix.data.frame(`BTC-USD`)
+head(BTC)
+ETH = as.matrix.data.frame(`ETH-USD`)
+USDT = as.matrix.data.frame(`USDT-USD`)
+BNB = as.matrix.data.frame(`BNB-USD`)
+```
+
+
+
+## Calculate log return and log volume
+
+```{r}
+logReturn.BTC <- as.matrix(BTC[,6] %>% log %>% diff)
+logReturn.ETH <- as.matrix(ETH[,6] %>% log %>% diff)
+logReturn.USDT <- as.matrix(USDT[,6] %>% log %>% diff)
+logReturn.BNB <- as.matrix(BNB[,6] %>% log %>% diff)
+
+logVolume.BTC <- log(BTC[,5])
+logVolume.ETH <- log(ETH[,5])
+logVolume.USDT <- log(USDT[,5])
+logVolume.BNB <- log(BNB[,5])
+
+```
+
+
+## data-driven volatility forecast
+
+```{r}
+# calculate sign correlation rho
+rho.cal<-function(X){
+  rho.hat<-cor(sign(X-mean(X)), X-mean(X))
+  return(rho.hat)
+}
+
+ddvol <- function(data){ 
+  ptm<-proc.time()
+  alpha<-seq(0.01, 0.3, 0.01)
+  t <- length(data)
+  cut.t <- 50 ### how many l values
+  X.cdf <- ecdf(data)
+  rho<- rho.cal(data)
+  mu <- mean(data)
+  vol<- abs(data - mu)/(2*rho*sqrt(X.cdf(mu)*(1-X.cdf(mu))))
+  MSE_alpha <- rep(0, length(alpha))
+  sn <- rep(0, length(alpha))
+  for(a in 1:length(alpha)){
+    s <- mean(vol[1:cut.t])
+    error<-rep(0, t)
+    for(i in 1:t){
+      error[i]<-vol[i]-s
+      s<-alpha[a]*vol[i]+(1-alpha[a])*s
+    }
+    MSE_alpha[a]<-mean(error[-(1:cut.t)]^2)
+    sn[a] <- s
+  }
+  dd.vol.fore <- sn[which.min(MSE_alpha)]
+  rmse <- sqrt(min(MSE_alpha))
+  return(c(dd.vol.fore, rmse, proc.time()-ptm))
+}
+```
+
+
+```{r}
+N <- nrow(logReturn.BTC)
+step <- 90
+
+ddvol.BTC<-c()
+ddvol.ETH<-c()
+ddvol.USDT<-c()
+ddvol.BNB<-c()
+
+for(i in 1:(N-90)){
+  ddvol.BTC[[i]]<-ddvol(as.numeric(logReturn.BTC[i:(i+90)]))
+}
+ddvol.BTC.m <- as.data.frame(matrix(unlist(ddvol.BTC), nrow=length(ddvol.BTC), byrow=TRUE))[, 1:3]
+colnames (ddvol.BTC.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-90)){
+  ddvol.ETH[[i]]<-ddvol(as.numeric(logReturn.ETH[i:(i+90)]))
+}
+ddvol.ETH.m <- as.data.frame(matrix(unlist(ddvol.ETH), nrow=length(ddvol.ETH), byrow=TRUE))[, 1:3]
+colnames (ddvol.ETH.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-90)){
+  ddvol.USDT[[i]]<-ddvol(as.numeric(logReturn.USDT[i:(i+90)]))
+}
+ddvol.USDT.m <- as.data.frame(matrix(unlist(ddvol.USDT), nrow=length(ddvol.USDT), byrow=TRUE))[, 1:3]
+colnames (ddvol.USDT.m) <- c("DDVF", "ERROR", "TIME")
+
+
+for(i in 1:(N-90)){
+  ddvol.BNB[[i]]<-ddvol(as.numeric(logReturn.BNB[i:(i+90)]))
+}
+ddvol.BNB.m <- as.data.frame(matrix(unlist(ddvol.BNB), nrow=length(ddvol.BNB), byrow=TRUE))[, 1:3]
+colnames (ddvol.BNB.m) <- c("DDVF", "ERROR", "TIME")
+
+
+
+logVolatility.BTC <- log(ddvol.BTC.m$DDVF[-1])
+logVolatility.ETH <- log(ddvol.ETH.m$DDVF[-1])
+logVolatility.USDT <- log(ddvol.USDT.m$DDVF[-1])
+logVolatility.BNB <- log(ddvol.BNB.m$DDVF[-1])
+```
+
+
+## Constructing data frames with log volume, log return, and log volatiltity
+
+## For BTC
+
+```{r}
+BTC.data <- cbind(logReturn.BTC[-c(1:91)], logVolume.BTC[-c(1:91)], logVolatility.BTC)
+colnames(BTC.data) <- c("logReturn.BTC", "logVolume.BTC","logVolatility.BTC")
+head(BTC.data)
+tail(BTC.data)
+
+acf(BTC.data[, 2])
+
+pacf(BTC.data[, 2])
+
+```
+
+
+## For ETH
+
+```{r}
+ETH.data <- cbind(logReturn.ETH[-c(1:91)], logVolume.ETH[-c(1:91)], logVolatility.ETH)
+colnames(ETH.data) <- c("logReturn.ETH", "logVolume.ETH","logVolatility.ETH")
+head(ETH.data)
+tail(ETH.data)
+
+acf(ETH.data[, 2])
+
+pacf(ETH.data[, 2])
+
+```
+
+
+## For USDT
+
+```{r}
+USDT.data <- cbind(logReturn.USDT[-c(1:91)], logVolume.USDT[-c(1:91)], logVolatility.USDT)
+colnames(USDT.data) <- c("logReturn.USDT", "logVolume.USDT","logVolatility.USDT")
+head(USDT.data)
+tail(USDT.data)
+
+acf(USDT.data[, 2])
+
+pacf(USDT.data[, 2])
+
+```
+
+
+
+
+## For BNB
+
+```{r}
+BNB.data <- cbind(logReturn.BNB[-c(1:91)], logVolume.BNB[-c(1:91)], logVolatility.BNB)
+colnames(BNB.data) <- c("logReturn.BNB", "logVolume.BNB","logVolatility.BNB")
+head(BNB.data)
+tail(BNB.data)
+
+acf(BNB.data[, 2])
+
+pacf(BNB.data[, 2])
+
+```
+
+
+
+## Indetifying train and test data
+
+```{r}
+ntest = round(nrow(BTC.data)*0.75)
+ntest
+
+train <- rep(NA, times = nrow(BTC.data))
+BTC.data.Complete <- cbind(BTC.data, train)
+
+for(i in 1:ntest){
+  BTC.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(BTC.data))){
+  BTC.data.Complete[i,4]= "FALSE"
+}
+#head(BTC.data.Complete)
+#tail(BTC.data.Complete)
+
+
+train <- rep(NA, times = nrow(ETH.data))
+ETH.data.Complete <- cbind(ETH.data, train)
+
+for(i in 1:ntest){
+  ETH.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(BTC.data))){
+  ETH.data.Complete[i,4]= "FALSE"
+}
+
+
+train <- rep(NA, times = nrow(USDT.data))
+USDT.data.Complete <- cbind(USDT.data, train)
+
+for(i in 1:ntest){
+  USDT.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(BTC.data))){
+  USDT.data.Complete[i,4]= "FALSE"
+}
+
+
+train <- rep(NA, times = nrow(BNB.data))
+BNB.data.Complete <- cbind(BNB.data, train)
+
+for(i in 1:ntest){
+  BNB.data.Complete[i,4]= "TRUE"
+}
+for(i in (ntest+1):(nrow(BTC.data))){
+  BNB.data.Complete[i,4]= "FALSE"
+}
+
+```
+
+
+## Setup NN from the book
+
+```{r}
+istrain.BTC <- BTC.data.Complete[, "train"]
+istrain.ETH <- ETH.data.Complete[, "train"]
+istrain.USDT <- USDT.data.Complete[, "train"]
+istrain.BNB <- BNB.data.Complete[, "train"]
+
+xdata.BTC <- scale(BTC.data)
+xdata.ETH <- scale(ETH.data)
+xdata.USDT <- scale(USDT.data)
+xdata.BNB <- scale(BNB.data)
+
+```
+
+
+
+```{r}
+# Function to create lag values
+lagm <- function(x, k = 1) {
+n <- nrow(x)
+pad <- matrix(NA , k, ncol(x))
+rbind(pad , x[1:(n - k), ])
+}
+```
+
+
+
+```{r}
+## 11 peaks in ACF plot for BTC. Thus, we consider lag 19 for BTC.
+arframe.BTC <- data.frame(log_volume.BTC = xdata.BTC[, "logVolume.BTC"],
+L1.BTC = lagm(xdata.BTC , 1), L2.BTC = lagm(xdata.BTC , 2),
+L3.BTC = lagm(xdata.BTC , 3), L4.BTC = lagm(xdata.BTC , 4),
+L5.BTC = lagm(xdata.BTC , 5), L6.BTC = lagm(xdata.BTC , 6),
+L7.BTC = lagm(xdata.BTC , 7), L8.BTC = lagm(xdata.BTC , 8),
+L9.BTC = lagm(xdata.BTC , 9))
+
+
+## 14 peaks in ACF plot for ETH. Thus, we consider lag 22 for ETH.
+arframe.ETH <- data.frame(log_volume.ETH = xdata.ETH[, "logVolume.ETH"],
+L1.ETH = lagm(xdata.ETH , 1), L2.ETH = lagm(xdata.ETH , 2),
+L3.ETH = lagm(xdata.ETH , 3), L4.ETH = lagm(xdata.ETH , 4),
+L5.ETH = lagm(xdata.ETH , 5), L6.ETH = lagm(xdata.ETH , 6),
+L7.ETH = lagm(xdata.ETH , 7), L8.ETH = lagm(xdata.ETH , 8),
+L9.ETH = lagm(xdata.ETH , 9), L10.ETH = lagm(xdata.ETH , 10),
+L11.ETH = lagm(xdata.ETH , 11), L12.ETH = lagm(xdata.ETH , 12),
+L13.ETH = lagm(xdata.ETH , 13), L14.ETH = lagm(xdata.ETH , 14), 
+L15.ETH = lagm(xdata.ETH , 15), L16.ETH = lagm(xdata.ETH , 16), 
+L17.ETH = lagm(xdata.ETH , 17), L18.ETH = lagm(xdata.ETH , 18), 
+L19.ETH = lagm(xdata.ETH , 19), L20.ETH = lagm(xdata.ETH , 20), 
+L21.ETH = lagm(xdata.ETH , 21), L22.ETH = lagm(xdata.ETH , 22))
+
+
+## 4 peaks in ACF plot for USDT. Thus, we consider lag 22 for USDT.
+arframe.USDT<- data.frame(log_volume.USDT = xdata.USDT[, "logVolume.USDT"],
+L1.USDT = lagm(xdata.USDT , 1), L2.USDT = lagm(xdata.USDT , 2),
+L3.USDT = lagm(xdata.USDT , 3), L4.USDT = lagm(xdata.USDT , 4),
+L5.USDT = lagm(xdata.USDT , 5), L6.USDT = lagm(xdata.USDT , 6),
+L7.USDT = lagm(xdata.USDT , 7), L8.USDT = lagm(xdata.USDT , 8),
+L9.USDT = lagm(xdata.USDT , 9), L10.USDT = lagm(xdata.USDT , 10),
+L11.USDT = lagm(xdata.USDT , 11), L12.USDT = lagm(xdata.USDT , 12),
+L13.USDT = lagm(xdata.USDT , 13), L14.USDT = lagm(xdata.USDT , 14),
+L15.USDT = lagm(xdata.USDT , 15), L16.USDT = lagm(xdata.USDT , 16),
+L17.USDT = lagm(xdata.USDT , 17), L18.USDT = lagm(xdata.USDT , 18),
+L19.USDT = lagm(xdata.USDT , 19), L20.USDT = lagm(xdata.USDT , 20),
+L21.USDT = lagm(xdata.USDT , 21), L22.USDT = lagm(xdata.USDT , 22))
+
+
+## 4 peaks in ACF plot for BNB. Thus, we consider lag 25 for BNB.
+arframe.BNB<- data.frame(log_volume.BNB = xdata.BNB[, "logVolume.BNB"],
+L1.BNB = lagm(xdata.BNB , 1), L2.BNB = lagm(xdata.BNB , 2),
+L3.BNB = lagm(xdata.BNB , 3), L4.BNB = lagm(xdata.BNB , 4),
+L5.BNB = lagm(xdata.BNB , 5), L6.BNB = lagm(xdata.BNB , 6),
+L7.BNB = lagm(xdata.BNB , 7), L8.BNB = lagm(xdata.BNB , 8),
+L9.BNB = lagm(xdata.BNB , 9), L10.BNB = lagm(xdata.BNB , 10),
+L11.BNB = lagm(xdata.BNB , 11), L12.BNB = lagm(xdata.BNB , 12),
+L13.BNB = lagm(xdata.BNB , 13), L14.BNB = lagm(xdata.BNB , 14),
+L15.BNB = lagm(xdata.BNB , 15), L16.BNB = lagm(xdata.BNB , 16),
+L17.BNB = lagm(xdata.BNB , 17), L18.BNB = lagm(xdata.BNB , 18),
+L19.BNB = lagm(xdata.BNB , 19), L20.BNB = lagm(xdata.BNB , 20),
+L21.BNB = lagm(xdata.BNB , 21), L22.BNB = lagm(xdata.BNB , 22),
+L23.BNB = lagm(xdata.BNB , 23), L24.BNB = lagm(xdata.BNB , 24),
+L25.BNB = lagm(xdata.BNB , 25))
+```
+
+
+```{r}
+## remove empty rows and adjust istrain(s) accordingly.
+
+arframe.BTC <- arframe.BTC[-(1:9), ]
+istrain.BTC <- istrain.BTC[-(1:9)]
+
+arframe.ETH <- arframe.ETH[-(1:22), ]
+istrain.ETH <- istrain.ETH[-(1:22)]
+
+arframe.USDT <- arframe.USDT[-(1:22), ]
+istrain.USDT <- istrain.USDT[-(1:22)]
+
+arframe.BNB <- arframe.BNB[-(1:25), ]
+istrain.BNB <- istrain.BNB[-(1:25)]
+
+```
+
+
+
+```{r}
+## To fit the RNN, we need to reshape these data
+
+nBTC <- nrow(arframe.BTC)
+xrnn.BTC <- data.matrix(arframe.BTC[, -1])
+xrnn.BTC <- array(xrnn.BTC, c(nBTC, 3, 9))
+xrnn.BTC <- xrnn.BTC[,, 9:1]
+xrnn.BTC <- aperm(xrnn.BTC , c(1, 3, 2))
+dim(xrnn.BTC)
+
+
+nETH <- nrow(arframe.ETH)
+xrnn.ETH <- data.matrix(arframe.ETH[, -1])
+xrnn.ETH <- array(xrnn.ETH, c(nETH, 3, 22))
+xrnn.ETH <- xrnn.ETH[,, 22:1]
+xrnn.ETH <- aperm(xrnn.ETH , c(1, 3, 2))
+dim(xrnn.ETH)
+
+
+nUSDT <- nrow(arframe.USDT)
+xrnn.USDT <- data.matrix(arframe.USDT[, -1])
+xrnn.USDT <- array(xrnn.USDT, c(nUSDT, 3, 22))
+xrnn.USDT <- xrnn.USDT[,, 22:1]
+xrnn.USDT <- aperm(xrnn.USDT , c(1, 3, 2))
+dim(xrnn.USDT)
+
+
+nUSDT <- nrow(arframe.BNB)
+xrnn.BNB <- data.matrix(arframe.BNB[, -1])
+xrnn.BNB <- array(xrnn.BNB, c(nUSDT, 3, 25))
+xrnn.BNB <- xrnn.BNB[,, 25:1]
+xrnn.BNB <- aperm(xrnn.BNB , c(1, 3, 2))
+dim(xrnn.BNB)
+```
+
+
+```{r, eval = FALSE}
+myarray <- array( 1:24, dim=c(2,3,4),
+ dimnames=list(One=c('a','b'), Two=c('A','B','C'), Three=1:4) )
+myarray
+aperm(myarray, c(3,1,2))
+```
+
+
+```{r}
+library(reticulate)
+#use_python('C:/Users/sulal/AppData/Local/Programs/Python/Python38')
+use_python('C:/Users/sulal/AppData/Local/Programs/Python/Python38/Python.exe')
+
+library(keras)
+```
+
+
+
+```{r}
+#Now we are ready to proceed with the RNN, which uses 12 hidden units.
+
+model.BTC <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(9, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.BTC %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.ETH <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(22, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.ETH %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.USDT <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(22, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.USDT %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+
+
+model.BNB <- keras_model_sequential () %>% layer_simple_rnn(units = 12, input_shape = list(25, 3),
+dropout = 0.1, recurrent_dropout = 0.1) %>% layer_dense(units = 1)
+model.BNB %>% compile(optimizer = optimizer_rmsprop (), loss = "mse")
+```
+
+
+## Fit the model and forecast
+
+
+## For BTC
+
+```{r}
+
+history.BTC <- model.BTC %>% fit(xrnn.BTC[(1:ntest) ,, ], arframe.BTC[(1:ntest) , "log_volume.BTC"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.BTC[((ntest+1):(dim(xrnn.BTC)[1])) ,, ], arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"]))
+
+kpred.BTC <- predict(model.BTC, xrnn.BTC[((ntest+1):(dim(xrnn.BTC)[1])) ,, ])
+
+## mean square error
+MSE.BTC <- mean((kpred.BTC - arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"])^2)
+MSE.BTC
+
+## mean absolute deviation
+MAD.BTC <- mean(abs(kpred.BTC - arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"]))
+MAD.BTC
+```
+
+
+
+```{r}
+plot(arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.BTC, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+## For ETH
+
+```{r}
+
+history.ETH <- model.ETH %>% fit(xrnn.ETH[(1:ntest) ,, ], arframe.ETH[(1:ntest) , "log_volume.ETH"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.ETH[((ntest+1):(dim(xrnn.ETH)[1])) ,, ], arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"]))
+
+kpred.ETH <- predict(model.ETH, xrnn.ETH[((ntest+1):(dim(xrnn.ETH)[1])) ,, ])
+
+## mean square error
+MSE.ETH <- mean((kpred.ETH - arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"])^2)
+MSE.ETH
+
+## mean absolute deviation
+MAD.ETH <- mean(abs(kpred.ETH - arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"]))
+MAD.ETH
+```
+
+
+
+```{r}
+plot(arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.ETH, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## For USDT
+
+```{r}
+
+history.USDT <- model.USDT %>% fit(xrnn.USDT[(1:ntest) ,, ], arframe.USDT[(1:ntest) , "log_volume.USDT"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.USDT[((ntest+1):(dim(xrnn.USDT)[1])) ,, ], arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"]))
+
+kpred.USDT <- predict(model.USDT, xrnn.USDT[((ntest+1):(dim(xrnn.USDT)[1])) ,, ])
+
+## mean square error
+MSE.USDT <- mean((kpred.USDT - arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"])^2)
+MSE.USDT
+
+## mean absolute deviation
+MAD.USDT <- mean(abs(kpred.USDT - arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"]))
+MAD.USDT
+```
+
+
+
+```{r}
+plot(arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.USDT, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## For BNB
+
+```{r}
+
+history.BNB <- model.BNB %>% fit(xrnn.BNB[(1:ntest) ,, ], arframe.BNB[(1:ntest) , "log_volume.BNB"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.BNB[((ntest+1):(dim(xrnn.BNB)[1])) ,, ], arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"]))
+
+kpred.BNB <- predict(model.BNB, xrnn.BNB[((ntest+1):(dim(xrnn.BNB)[1])) ,, ])
+
+## mean square error
+MSE.BNB <- mean((kpred.BNB - arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"])^2)
+MSE.BNB
+
+## mean absolute deviation
+MAD.BNB <- mean(abs(kpred.BNB - arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"]))
+MAD.BNB
+```
+
+
+
+```{r}
+plot(arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.BNB, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+
+## nnetar function from the forecast package
+
+```{r}
+library(forecast)
+```
+
+
+
+## for BTC
+
+```{r}
+
+trainID.BTC = which(BTC.data.Complete[,4]=="TRUE")
+testID.BTC = which(BTC.data.Complete[,4]=="FALSE")
+
+train.new.BTC = BTC.data.Complete[trainID.BTC,]
+test.new.BTC = BTC.data.Complete[testID.BTC,]
+
+
+fit.nn.BTC <- nnetar(as.numeric(train.new.BTC[,2]), xreg =  cbind(as.numeric(train.new.BTC[,1]), as.numeric(train.new.BTC[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.BTC <- CVar(as.numeric(train.new.BTC[,2]), xreg =  cbind(as.numeric(train.new.BTC[,1]), as.numeric(train.new.BTC[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.BTC
+
+fore.nn.BTC <- forecast::forecast(fit.nn.BTC, xreg =  cbind(as.numeric(test.new.BTC[,1]), as.numeric(test.new.BTC[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.BTC <- mean((fore.nn.BTC$mean - as.numeric(test.new.BTC[,2]))^2)
+MSE.nnetar.BTC
+
+## mean absolute deviation
+MAD.nnetar.BTC <- mean(abs(fore.nn.BTC$mean - as.numeric(test.new.BTC[,2])))
+MAD.nnetar.BTC
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.BTC[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.BTC$mean), col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## for ETH
+
+```{r}
+
+trainID.ETH = which(ETH.data.Complete[,4]=="TRUE")
+testID.ETH = which(ETH.data.Complete[,4]=="FALSE")
+
+train.new.ETH = ETH.data.Complete[trainID.ETH,]
+test.new.ETH = ETH.data.Complete[testID.ETH,]
+
+
+fit.nn.ETH <- nnetar(as.numeric(train.new.ETH[,2]), xreg =  cbind(as.numeric(train.new.ETH[,1]), as.numeric(train.new.ETH[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.ETH <- CVar(as.numeric(train.new.ETH[,2]), xreg =  cbind(as.numeric(train.new.ETH[,1]), as.numeric(train.new.ETH[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.ETH
+
+fore.nn.ETH <- forecast::forecast(fit.nn.ETH, xreg =  cbind(as.numeric(test.new.ETH[,1]), as.numeric(test.new.ETH[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.ETH <- mean((fore.nn.ETH$mean - as.numeric(test.new.ETH[,2]))^2)
+MSE.nnetar.ETH
+
+## mean absolute deviation
+MAD.nnetar.ETH <- mean(abs(fore.nn.ETH$mean - as.numeric(test.new.ETH[,2])))
+MAD.nnetar.ETH
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.ETH[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.ETH$mean), col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+
+
+
+## for USDT
+
+```{r}
+
+trainID.USDT = which(USDT.data.Complete[,4]=="TRUE")
+testID.USDT = which(USDT.data.Complete[,4]=="FALSE")
+
+train.new.USDT = USDT.data.Complete[trainID.USDT,]
+test.new.USDT = USDT.data.Complete[testID.USDT,]
+
+
+fit.nn.USDT <- nnetar(as.numeric(train.new.USDT[,2]), xreg =  cbind(as.numeric(train.new.USDT[,1]), as.numeric(train.new.USDT[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.USDT <- CVar(as.numeric(train.new.USDT[,2]), xreg =  cbind(as.numeric(train.new.USDT[,1]), as.numeric(train.new.USDT[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.USDT
+
+fore.nn.USDT <- forecast::forecast(fit.nn.USDT, xreg =  cbind(as.numeric(test.new.USDT[,1]), as.numeric(test.new.USDT[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.USDT <- mean((fore.nn.USDT$mean - as.numeric(test.new.USDT[,2]))^2)
+MSE.nnetar.USDT
+
+## mean absolute deviation
+MAD.nnetar.USDT <- mean(abs(fore.nn.USDT$mean - as.numeric(test.new.USDT[,2])))
+MAD.nnetar.USDT
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.USDT[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.USDT$mean), col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## for BNB
+
+```{r}
+
+trainID.BNB = which(BNB.data.Complete[,4]=="TRUE")
+testID.BNB = which(BNB.data.Complete[,4]=="FALSE")
+
+train.new.BNB = BNB.data.Complete[trainID.BNB,]
+test.new.BNB = BNB.data.Complete[testID.BNB,]
+
+
+fit.nn.BNB <- nnetar(as.numeric(train.new.BNB[,2]), xreg =  cbind(as.numeric(train.new.BNB[,1]), as.numeric(train.new.BNB[,3])), lambda="auto", decay = 0.1)
+
+fit_test_cv.BNB <- CVar(as.numeric(train.new.BNB[,2]), xreg =  cbind(as.numeric(train.new.BNB[,1]), as.numeric(train.new.BNB[,3])), lambda="auto", decay = 0.1)
+
+fit.nn.BNB
+
+fore.nn.BNB <- forecast::forecast(fit.nn.BNB, xreg =  cbind(as.numeric(test.new.BNB[,1]), as.numeric(test.new.BNB[,3])), PI = TRUE)
+
+## mean square error
+MSE.nnetar.BNB <- mean((fore.nn.BNB$mean - as.numeric(test.new.BNB[,2]))^2)
+MSE.nnetar.BNB
+
+## mean absolute deviation
+MAD.nnetar.BNB <- mean(abs(fore.nn.BNB$mean - as.numeric(test.new.BNB[,2])))
+MAD.nnetar.BNB
+```
+
+
+
+```{r}
+plot(as.numeric(test.new.BNB[,2]), col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(as.vector(fore.nn.BNB$mean), col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## NN with two layers. each layer has 24 neurons
+
+
+## BTC
+
+```{r}
+model.BTC.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(9, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.BTC.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.BTC.new <- model.BTC.new %>% fit(xrnn.BTC[(1:ntest) ,, ], arframe.BTC[(1:ntest) , "log_volume.BTC"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.BTC[((ntest+1):(dim(xrnn.BTC)[1])) ,, ], arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"]))
+
+kpred.BTC.new <- predict(model.BTC.new, xrnn.BTC[((ntest+1):(dim(xrnn.BTC)[1])) ,, ])
+
+## mean square error
+MSE.BTC.new <- mean((kpred.BTC.new - arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"])^2)
+MSE.BTC.new
+
+## mean absolute deviation
+MAD.BTC.new <- mean(abs(kpred.BTC.new - arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"]))
+MAD.BTC.new
+
+```
+
+
+
+```{r}
+plot(arframe.BTC[((ntest+1):(dim(xrnn.BTC)[1])) , "log_volume.BTC"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.BTC.new, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+## ETH
+
+```{r}
+model.ETH.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(22, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.ETH.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.ETH.new <- model.ETH.new %>% fit(xrnn.ETH[(1:ntest) ,, ], arframe.ETH[(1:ntest) , "log_volume.ETH"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.ETH[((ntest+1):(dim(xrnn.ETH)[1])) ,, ], arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"]))
+
+kpred.ETH.new <- predict(model.ETH.new, xrnn.ETH[((ntest+1):(dim(xrnn.ETH)[1])) ,, ])
+
+## mean square error
+MSE.ETH.new <- mean((kpred.ETH.new - arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"])^2)
+MSE.ETH.new
+
+## mean absolute deviation
+MAD.ETH.new <- mean(abs(kpred.ETH.new - arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"]))
+MAD.ETH.new
+
+```
+
+
+
+```{r}
+plot(arframe.ETH[((ntest+1):(dim(xrnn.ETH)[1])) , "log_volume.ETH"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.ETH.new, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+## USDT
+
+```{r}
+model.USDT.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(22, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.USDT.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.USDT.new <- model.USDT.new %>% fit(xrnn.USDT[(1:ntest) ,, ], arframe.USDT[(1:ntest) , "log_volume.USDT"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.USDT[((ntest+1):(dim(xrnn.USDT)[1])) ,, ], arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"]))
+
+kpred.USDT.new <- predict(model.USDT.new, xrnn.USDT[((ntest+1):(dim(xrnn.USDT)[1])) ,, ])
+
+## mean square error
+MSE.USDT.new <- mean((kpred.USDT.new - arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"])^2)
+MSE.USDT.new
+
+## mean absolute deviation
+MAD.USDT.new <- mean(abs(kpred.USDT.new - arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"]))
+MAD.USDT.new
+
+```
+
+
+
+```{r}
+plot(arframe.USDT[((ntest+1):(dim(xrnn.USDT)[1])) , "log_volume.USDT"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.USDT.new, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
+
+
+
+
+
+## BNB
+
+```{r}
+model.BNB.new <- keras_model_sequential() %>%
+  layer_simple_rnn(units = 24, input_shape = list(25, 3),
+                   dropout = 0.1, recurrent_dropout = 0.1,
+                   return_sequences = TRUE) %>%
+  layer_simple_rnn(units = 24,
+                   dropout = 0.1, recurrent_dropout = 0.1) %>%
+  layer_dense(units = 1)
+
+model.BNB.new %>% compile(optimizer = optimizer_rmsprop(), loss = "mse")
+
+
+history.BNB.new <- model.BNB.new %>% fit(xrnn.BNB[(1:ntest) ,, ], arframe.BNB[(1:ntest) , "log_volume.BNB"],
+batch_size = 64, epochs = 200, validation_data =
+list(xrnn.BNB[((ntest+1):(dim(xrnn.BNB)[1])) ,, ], arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"]))
+
+kpred.BNB.new <- predict(model.BNB.new, xrnn.BNB[((ntest+1):(dim(xrnn.BNB)[1])) ,, ])
+
+## mean square error
+MSE.BNB.new <- mean((kpred.BNB.new - arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"])^2)
+MSE.BNB.new
+
+## mean absolute deviation
+MAD.BNB.new <- mean(abs(kpred.BNB.new - arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"]))
+MAD.BNB.new
+
+```
+
+
+
+```{r}
+plot(arframe.BNB[((ntest+1):(dim(xrnn.BNB)[1])) , "log_volume.BNB"], col="red", type="l", ylab = "Log Trading Volume", xlab = "Day")
+lines(kpred.BNB.new, col="blue")
+legend("topright", legend = c("Actuals", "Forecasts"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
