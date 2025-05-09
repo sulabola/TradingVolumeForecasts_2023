@@ -1,6 +1,6 @@
 # Superiority of Neural Networks for Trading Volume Forecasts of Stocks and Cryptocurrencies
 
-Trading volume is an important variable to successfully capture market risks along with asset price/returns. Recently, there has been a growing interest in deep learning methods to forecast the trading volume of stocks using historical volatility as a feature. Unlike the existing work, this study proposes a novel data-driven log volatility forecast as an extra feature to improve trading volume forecasts.
+Trading volume is an important variable for successfully capturing market risks along with asset price/returns. Recently, there has been a growing interest in deep learning methods to forecast the trading volume of stocks using historical volatility as a feature. Unlike the existing work, this study proposes a novel data-driven log volatility forecast as an extra feature to improve trading volume forecasts.
 
 The PDF copy of the paper can be downloaded from here: [Download Paper](https://ieeexplore.ieee.org/abstract/document/10371869) 
 
