@@ -4,7 +4,7 @@ Trading volume is an important variable for successfully capturing market risks 
 
 The PDF copy of the paper can be downloaded from here: [Download Paper](https://ieeexplore.ieee.org/abstract/document/10371869) 
 
-A preprint version of the paper is available in the repository.
+A preprint version of the paper is available in the repository
 
 Programming Language: [R](https://cran.r-project.org/bin/windows/base/) / [RStudio](https://posit.co/downloads/)
 
