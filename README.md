@@ -6,7 +6,7 @@ The PDF copy of the paper can be downloaded from here: [Download Paper](https://
 
 A preprint version of the paper is available in the repository
 
-Programming Language: [R](https://cran.r-project.org/bin/windows/base/) / [RStudio](https://posit.co/downloads/)
+Programming Language: [R](https://cran.r-project.org/bin/windows/base/) / [RStudio](https://posit.co/downloads/) / [Python](https://www.python.org/downloads/)
 
 Data: The provided R codes download data directly from [Yahoo!Finance](https://ca.finance.yahoo.com/)
 
